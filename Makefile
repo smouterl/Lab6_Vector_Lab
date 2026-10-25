@@ -1,3 +1,8 @@
+# Author: Logan Smouter
+# Date: 10/16/2026
+# Description: Build the vector calculator and remove generated build files.
+# Compilation: $ make
+
 CC = gcc
 CFLAGS = -Wall
 TARGET = minimat
