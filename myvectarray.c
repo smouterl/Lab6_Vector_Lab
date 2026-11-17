@@ -1,27 +1,29 @@
 /*
  * Author: Logan Smouter
  * Date: 10/16/2026
- * Description: Implement storage, lookup, and clearing for up to ten vectors.
+ * Description: Implement dynamically growing vector storage, lookup, and cleanup.
  * Compilation: $ make
  */
 
 #include "myvectarray.h"
 
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
-/* Keep the array and count available only to functions in this file. */
-static vect storage[MAX_VECTORS];
-static int stored_count;
+static vect *storage;
+static size_t stored_count;
+static size_t capacity;
 
 /**
  * Replace a vector with the same name, or add it to the next available slot.
  *
  * @param newvect Vector to store, including its name and three components.
- * @return 0 on success, or -1 for an empty name or full storage.
+ * @return 0 on success, or -1 for an empty name or allocation failure.
  */
 int storevect(vect newvect)
 {
-    int index;
+    size_t index;
 
     if (newvect.name[0] == '\0')
         return -1;
@@ -36,8 +38,19 @@ int storevect(vect newvect)
         }
     }
 
-    if (stored_count >= MAX_VECTORS)
-        return -1;
+    if (stored_count == capacity)
+    {
+        size_t new_capacity = capacity == 0 ? 10 : capacity * 2;
+        vect *new_storage;
+
+        if (new_capacity < capacity || new_capacity > SIZE_MAX / sizeof(*storage))
+            return -1;
+        new_storage = realloc(storage, new_capacity * sizeof(*storage));
+        if (new_storage == NULL)
+            return -1;
+        storage = new_storage;
+        capacity = new_capacity;
+    }
 
     storage[stored_count] = newvect;
     stored_count++;
@@ -54,7 +67,7 @@ int storevect(vect newvect)
  */
 int findvect(const char *name, vect *result)
 {
-    int index;
+    size_t index;
 
     if (name == NULL || result == NULL || name[0] == '\0')
         return 0;
@@ -72,12 +85,14 @@ int findvect(const char *name, vect *result)
 }
 
 /**
- * Clear the storage array and reset the vector count to zero.
+ * Release the storage array and reset its count and capacity to zero.
  */
 void clearvects(void)
 {
-    memset(storage, 0, sizeof(storage));
+    free(storage);
+    storage = NULL;
     stored_count = 0;
+    capacity = 0;
 }
 
 /**
@@ -85,7 +100,7 @@ void clearvects(void)
  *
  * @return Number of occupied slots in the storage array.
  */
-int vectcount(void)
+size_t vectcount(void)
 {
     return stored_count;
 }
@@ -97,9 +112,9 @@ int vectcount(void)
  * @param result Location in which to store the copy.
  * @return 1 on success, or 0 for an invalid index or null result pointer.
  */
-int getvect(int index, vect *result)
+int getvect(size_t index, vect *result)
 {
-    if (result == NULL || index < 0 || index >= stored_count)
+    if (result == NULL || index >= stored_count)
         return 0;
 
     *result = storage[index];

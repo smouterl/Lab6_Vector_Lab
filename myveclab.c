@@ -5,6 +5,8 @@
  * Compilation: $ make
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "myveclab.h"
 #include "myvect.h"
 #include "myvectarray.h"
@@ -39,12 +41,7 @@ static char *trim(char *text)
     return text;
 }
 
-/**
- * Check a vector name's length, characters, and use of reserved commands.
- *
- * @param name Name to check.
- * @return 1 for a valid name, or 0 otherwise.
- */
+/* Check vector names and reserve calculator commands. */
 static int validname(const char *name)
 {
     size_t index;
@@ -53,16 +50,14 @@ static int validname(const char *name)
         return 0;
     if (!isalpha((unsigned char)name[0]) && name[0] != '_')
         return 0;
-
     for (index = 1; name[index] != '\0'; index++)
     {
         if (!isalnum((unsigned char)name[index]) && name[index] != '_')
             return 0;
     }
-
-    /* Reserve these names for commands. */
     return strcmp(name, "quit") != 0 && strcmp(name, "clear") != 0
-        && strcmp(name, "list") != 0;
+        && strcmp(name, "list") != 0 && strcmp(name, "load") != 0
+        && strcmp(name, "save") != 0;
 }
 
 /**
@@ -98,7 +93,7 @@ static void printvect(const vect *value)
  */
 static void listvects(void)
 {
-    int index;
+    size_t index;
     vect value;
 
     if (vectcount() == 0)
@@ -283,10 +278,108 @@ static void assignment(char *command)
 
     strcpy(result.name, name);
     if (storevect(result) != 0)
-        printf("Memory full: cannot store '%s'. Use clear to free storage.\n", name);
+        printf("Out of memory: cannot store '%s'. Use clear to free storage.\n", name);
 
     /* Display the result even if there was no room to store it. */
     printvect(&result);
+}
+
+/* Merge CSV rows into storage */
+static void loadvects(const char *filename)
+{
+    FILE *file = fopen(filename, "r");
+    char *line = NULL;
+    size_t capacity = 0;
+    ssize_t length;
+
+    if (file == NULL)
+    {
+        perror(filename);
+        return;
+    }
+    while ((length = getline(&line, &capacity, file)) >= 0)
+    {
+        vect value = {0};
+        char extra;
+        int has_null = memchr(line, '\0', (size_t)length) != NULL;
+        char *row = trim(line);
+
+        if (*row == '\0' && !has_null)
+            continue;
+        if (has_null
+            || sscanf(row, "%15[^,],%lf ,%lf ,%lf %c", value.name,
+                      &value.values[0], &value.values[1], &value.values[2], &extra) != 4
+            || !validname(value.name) || !isfinite(value.values[0])
+            || !isfinite(value.values[1]) || !isfinite(value.values[2]))
+        {
+            fprintf(stderr, "Invalid CSV row in '%s'; skipped.\n", filename);
+            continue;
+        }
+        if (storevect(value) != 0)
+        {
+            fputs("Out of memory loading vectors.\n", stderr);
+            break;
+        }
+    }
+    if (!feof(file) && length < 0)
+        fprintf(stderr, "Error reading '%s'.\n", filename);
+    free(line);
+    fclose(file);
+}
+
+/* Write a CSV file with all stored vectors. */
+static void savevects(const char *filename)
+{
+    FILE *file = fopen(filename, "w");
+    size_t index;
+    int failed = 0;
+
+    if (file == NULL)
+    {
+        perror(filename);
+        return;
+    }
+    for (index = 0; index < vectcount(); index++)
+    {
+        vect value;
+
+        getvect(index, &value);
+        if (fprintf(file, "%s,%.17g,%.17g,%.17g\n", value.name,
+                    value.values[0], value.values[1], value.values[2]) < 0)
+        {
+            failed = 1;
+            break;
+        }
+    }
+    if (fclose(file) != 0 || failed)
+        fprintf(stderr, "Error saving '%s'.\n", filename);
+}
+
+/* Recognize a file command only at the end of a word. */
+static int isfilecommand(const char *command, const char *name)
+{
+    size_t length = strlen(name);
+
+    return strncmp(command, name, length) == 0
+        && (command[length] == '\0' || isspace((unsigned char)command[length]));
+}
+
+static void filecommand(char *command)
+{
+    char *filename = trim(command + 4);
+    char *end = filename;
+
+    while (*end != '\0' && !isspace((unsigned char)*end))
+        end++;
+    if (*filename == '\0' || *end != '\0')
+    {
+        printf("Usage: %.4s <filename> (filename cannot contain spaces).\n", command);
+        return;
+    }
+    if (strncmp(command, "load", 4) == 0)
+        loadvects(filename);
+    else
+        savevects(filename);
 }
 
 /**
@@ -335,6 +428,8 @@ void veclab(void)
         }
         else if (strcmp(command, "list") == 0)
             listvects();
+        else if (isfilecommand(command, "load") || isfilecommand(command, "save"))
+            filecommand(command);
         else if (strchr(command, '=') != NULL)
             assignment(command);
         else if (evaluate(command, &result, 0))
@@ -365,10 +460,15 @@ void printhelp(const char *program_name)
          "  number * vector     Scale a vector\n"
          "  result = expression Store and display an operation result\n"
          "  list                Display all stored vectors\n"
+         "  load filename       Merge CSV vectors, replacing matching names\n"
+         "  save filename       Save all vectors as CSV, overwriting the file\n"
          "  clear               Remove all stored vectors\n"
          "  quit                Exit\n"
          "\nUse spaces around math operators. Names are case-sensitive,\n"
          "start with a letter or underscore, and contain at most 15 characters.\n"
-         "Up to 10 vectors can be stored. Values may be decimal or scientific\n"
-         "notation. Dot and cross products are not implemented.");
+         "Storage grows as needed and is released by clear or on normal exit.\n"
+         "Filenames cannot contain spaces; relative and absolute paths work.\n"
+         "CSV rows are name,x,y,z; invalid rows are reported and skipped.\n"
+         "Values may be decimal or scientific notation.\n"
+         "Dot and cross products are not implemented.");
 }

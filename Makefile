@@ -11,7 +11,7 @@ OBJECTS = main.o myveclab.o myvectarray.o myvectop.o
 $(TARGET): $(OBJECTS)
 	$(CC) $(CFLAGS) $(OBJECTS) -o $(TARGET)
 
-main.o: main.c myveclab.h
+main.o: main.c myveclab.h myvectarray.h myvect.h
 	$(CC) $(CFLAGS) -c main.c
 
 myveclab.o: myveclab.c myveclab.h myvect.h myvectarray.h myvectop.h

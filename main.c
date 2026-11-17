@@ -6,6 +6,7 @@
  */
 
 #include "myveclab.h"
+#include "myvectarray.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
     if (argc == 1)
     {
         veclab();
+        clearvects();
         return 0;
     }
 
